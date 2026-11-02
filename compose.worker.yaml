@@ -1,0 +1,65 @@
+# Existing Open WebUI + existing Nginx Proxy Manager; one persistent worker.
+name: video-creator-worker-only
+services:
+  init:
+    image: video-creator-worker:1.0.0
+    platform: linux/amd64
+    user: "0:0"
+    entrypoint: ["python", "/app/docker/init_state.py"]
+    volumes:
+      - video-secrets:/run/video-secrets
+      - video-data:/data
+    restart: "no"
+
+  video-worker:
+    image: video-creator-worker:1.0.0
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    platform: linux/amd64
+    environment:
+      VIDEO_API_KEY_FILE: /run/video-secrets/video-api-key
+      VIDEO_TOOLS_CONFIG: /opt/video-tools/tools.json
+      VIDEO_DATA_DIR: /data
+      PLANNER_URL: ${PLANNER_URL:-}
+      PLANNER_MODEL: ${PLANNER_MODEL:-}
+      PLANNER_API_KEY: ${PLANNER_API_KEY:-}
+    volumes:
+      - video-secrets:/run/video-secrets:ro
+      - video-data:/data
+    networks:
+      shared:
+        aliases: [video-creator-worker-only]
+    shm_size: 1gb
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  configure:
+    image: video-creator-worker:1.0.0
+    platform: linux/amd64
+    profiles: [tools]
+    entrypoint: ["python", "/app/docker/configure_openwebui.py"]
+    environment:
+      OPENWEBUI_URL: ${OPENWEBUI_INTERNAL_URL:?Set OPENWEBUI_INTERNAL_URL}
+      VIDEO_API_URL: http://video-creator-worker-only:8001
+      VIDEO_PUBLIC_URL: ${VIDEO_PUBLIC_URL:?Set VIDEO_PUBLIC_URL}
+      VIDEO_API_KEY_FILE: /run/video-secrets/video-api-key
+    volumes:
+      - video-secrets:/run/video-secrets:ro
+    networks: [shared]
+    stdin_open: true
+    tty: true
+    depends_on:
+      video-worker:
+        condition: service_healthy
+
+networks:
+  shared:
+    external: true
+    name: ${VIDEO_SHARED_NETWORK:?Set VIDEO_SHARED_NETWORK}
+
+volumes:
+  video-data:
+  video-secrets:

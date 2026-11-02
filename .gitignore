@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.local-test/
+node_modules/
+.webui_secret_key
+.video-data/
+*.local.json
+.remotion/
+.env
+.docker-test/
+*.tar
+*.tar.gz

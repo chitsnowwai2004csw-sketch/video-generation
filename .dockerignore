@@ -1,0 +1,13 @@
+**
+!video_worker.py
+!video_creator_pipe.py
+!worker-requirements.txt
+!server-tools/
+!server-tools/package.json
+!server-tools/package-lock.json
+!server-tools/render.mjs
+!server-tools/speak.py
+!server-tools/brag-preset.md
+!docker/
+!docker/**
+docker/**/__pycache__/

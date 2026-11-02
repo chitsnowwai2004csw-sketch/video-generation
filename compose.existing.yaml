@@ -1,0 +1,84 @@
+# Connect this stack to an existing Open WebUI Docker network. No existing
+# Open WebUI container, database, or user account is replaced.
+name: video-creator-addon
+services:
+  init:
+    image: video-creator-worker:1.0.0
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    platform: linux/amd64
+    user: "0:0"
+    entrypoint: ["python", "/app/docker/init_state.py"]
+    volumes:
+      - video-secrets:/run/video-secrets
+      - video-data:/data
+    restart: "no"
+
+  video-worker:
+    image: video-creator-worker:1.0.0
+    platform: linux/amd64
+    init: true
+    environment:
+      VIDEO_API_KEY_FILE: /run/video-secrets/video-api-key
+      VIDEO_TOOLS_CONFIG: /opt/video-tools/tools.json
+      VIDEO_DATA_DIR: /data
+      PLANNER_URL: ${PLANNER_URL:-}
+      PLANNER_MODEL: ${PLANNER_MODEL:-}
+      PLANNER_API_KEY: ${PLANNER_API_KEY:-}
+    volumes:
+      - video-secrets:/run/video-secrets:ro
+      - video-data:/data
+    networks:
+      default:
+        aliases: [video-creator-addon-worker]
+      existing-webui:
+        aliases: [video-creator-addon-worker]
+    shm_size: 1gb
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  gateway:
+    image: nginx:1.28-alpine
+    environment:
+      OPENWEBUI_UPSTREAM: ${OPENWEBUI_UPSTREAM:-open-webui:8080}
+      NGINX_ENVSUBST_FILTER: "^OPENWEBUI_UPSTREAM$"
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${WEBUI_PORT:-3000}:80"
+    volumes:
+      - ./docker/nginx-existing.conf.template:/etc/nginx/templates/default.conf.template:ro
+    networks: [default, existing-webui]
+    depends_on:
+      video-worker:
+        condition: service_healthy
+    restart: unless-stopped
+
+  configure:
+    image: video-creator-worker:1.0.0
+    platform: linux/amd64
+    profiles: [tools]
+    entrypoint: ["python", "/app/docker/configure_openwebui.py"]
+    environment:
+      OPENWEBUI_URL: http://${OPENWEBUI_UPSTREAM:-open-webui:8080}
+      VIDEO_API_URL: http://video-creator-addon-worker:8001
+      VIDEO_PUBLIC_URL: ${VIDEO_PUBLIC_URL:-http://localhost:3000/video}
+      VIDEO_API_KEY_FILE: /run/video-secrets/video-api-key
+    volumes:
+      - video-secrets:/run/video-secrets:ro
+    networks: [default, existing-webui]
+    stdin_open: true
+    tty: true
+    depends_on:
+      video-worker:
+        condition: service_healthy
+
+networks:
+  existing-webui:
+    external: true
+    name: ${OPENWEBUI_DOCKER_NETWORK:?Set OPENWEBUI_DOCKER_NETWORK in .env to your existing Docker network name}
+
+volumes:
+  video-data:
+  video-secrets:
